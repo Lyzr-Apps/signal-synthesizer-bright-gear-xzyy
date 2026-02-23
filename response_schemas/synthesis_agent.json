@@ -8,6 +8,6 @@
     "signal_summary": ["string array - exactly 5 bullet points"],
     "narrative_compression": "string - single paragraph",
     "tags": ["string array - up to 3 tags"],
-    "diagnostic_note": "string - 1 sentence"
+    "diagnostic_note": "string - 1 sentence. Prepended with 'Signal Status: Unverified or Hypothetical.' when input is fictional, speculative, or unsupported"
   }
 }
