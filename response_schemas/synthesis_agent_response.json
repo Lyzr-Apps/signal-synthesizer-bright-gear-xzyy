@@ -1,0 +1,28 @@
+{
+  "agent_name": "Synthesis Agent",
+  "agent_id": "699bbbbb071399e40ad3523c",
+  "description": "Processes raw text input and produces a strictly formatted four-part output: 5-bullet Signal Summary, Narrative Compression paragraph, up to 3 Tags, and a 1-sentence Diagnostic Note. Never invents facts; labels missing information as Unknown. Maintains identical output structure on every invocation.",
+  "agent_type": "json",
+  "accessor": "result",
+  "auto_generated": true,
+  "response_schema": {
+    "signal_summary": [
+      "string"
+    ],
+    "narrative_compression": "string",
+    "tags": [
+      "string"
+    ],
+    "diagnostic_note": "string"
+  },
+  "example_response": {
+    "signal_summary": [
+      "sample string"
+    ],
+    "narrative_compression": "A single paragraph of 2-4 sentences compressing the core narrative",
+    "tags": [
+      "sample string"
+    ],
+    "diagnostic_note": "Exactly 1 sentence assessing input quality, completeness, and potential gaps"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "app_name": "Signal Synthesizer",
+  "agents": {
+    "synthesis_agent": {
+      "agent_id": "699bbbbb071399e40ad3523c",
+      "name": "Synthesis Agent",
+      "type": "single",
+      "model": "gpt-4.1",
+      "provider": "openai",
+      "temperature": 0.1,
+      "top_p": 0.9,
+      "has_knowledge_base": false,
+      "has_tools": false,
+      "has_voice": false,
+      "has_image_output": false,
+      "has_file_output": false
+    }
+  },
+  "agent_ids": ["699bbbbb071399e40ad3523c"]
+}

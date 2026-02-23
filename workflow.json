@@ -1,0 +1,45 @@
+{
+  "app_name": "Signal Synthesizer",
+  "pattern": "single_agent",
+  "nodes": [
+    {
+      "id": "input_node",
+      "type": "Input",
+      "label": "User Text Input",
+      "nodeCategory": "input"
+    },
+    {
+      "id": "synthesis_agent",
+      "type": "Agent",
+      "label": "Synthesis Agent",
+      "nodeCategory": "agent"
+    },
+    {
+      "id": "output_node",
+      "type": "Output",
+      "label": "Structured Output",
+      "nodeCategory": "end"
+    }
+  ],
+  "edges": [
+    {
+      "source": "input_node",
+      "target": "synthesis_agent"
+    },
+    {
+      "source": "synthesis_agent",
+      "target": "output_node"
+    }
+  ],
+  "agents": [
+    {
+      "node_id": "synthesis_agent",
+      "agent_id": "699bbbbb071399e40ad3523c",
+      "name": "Synthesis Agent",
+      "model": "gpt-4.1",
+      "provider": "openai",
+      "temperature": 0.1,
+      "top_p": 0.9
+    }
+  ]
+}

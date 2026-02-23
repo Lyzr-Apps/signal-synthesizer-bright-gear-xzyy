@@ -1,0 +1,13 @@
+{
+  "agent_name": "Synthesis Agent",
+  "agent_id": "699bbbbb071399e40ad3523c",
+  "agent_type": "json",
+  "accessor": "json",
+  "has_module_outputs": false,
+  "response_schema": {
+    "signal_summary": ["string array - exactly 5 bullet points"],
+    "narrative_compression": "string - single paragraph",
+    "tags": ["string array - up to 3 tags"],
+    "diagnostic_note": "string - 1 sentence"
+  }
+}
