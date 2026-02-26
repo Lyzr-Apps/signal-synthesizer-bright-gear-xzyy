@@ -31,6 +31,8 @@ import {
   ArrowRight,
   Send,
   ChevronRight,
+  ListFilter,
+  CircleDot,
 } from 'lucide-react'
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -290,13 +292,22 @@ function createPipelineDraft(input: string, output: ForgeResult, route: RouteTyp
   }
 }
 
-function savePipelineDraft(draft: PipelineDraft) {
-  if (typeof window === 'undefined') return
+function loadPipelineDrafts(): PipelineDraft[] {
+  if (typeof window === 'undefined') return []
   try {
     const stored = localStorage.getItem(PIPELINE_DRAFTS_KEY)
-    const existing: PipelineDraft[] = stored ? JSON.parse(stored) : []
-    const updated = [draft, ...(Array.isArray(existing) ? existing : [])].slice(0, 100)
-    localStorage.setItem(PIPELINE_DRAFTS_KEY, JSON.stringify(updated))
+    if (!stored) return []
+    const parsed = JSON.parse(stored)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function savePipelineDrafts(drafts: PipelineDraft[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(PIPELINE_DRAFTS_KEY, JSON.stringify(drafts.slice(0, 100)))
   } catch {
     // localStorage full or unavailable
   }
@@ -455,21 +466,36 @@ function StageIndicators({
   )
 }
 
-// ─── HISTORY SIDEBAR COMPONENT ───────────────────────────────────────────────
+// ─── SIDEBAR COMPONENT (History + Pipeline) ─────────────────────────────────
 
-function HistorySidebar({
+function getConfidenceColor(score: number): string {
+  if (score <= 30) return 'bg-destructive text-destructive-foreground'
+  if (score <= 60) return 'bg-accent text-accent-foreground'
+  return 'bg-secondary text-secondary-foreground'
+}
+
+function SidebarPanel({
   history,
-  onSelect,
-  onClear,
-  selectedId,
+  onHistorySelect,
+  onHistoryClear,
+  selectedHistoryId,
+  pipelineItems,
+  onPipelineRemove,
+  onPipelineClear,
+  highlightedPipelineId,
 }: {
   history: HistoryEntry[]
-  onSelect: (entry: HistoryEntry) => void
-  onClear: () => void
-  selectedId: string | null
+  onHistorySelect: (entry: HistoryEntry) => void
+  onHistoryClear: () => void
+  selectedHistoryId: string | null
+  pipelineItems: PipelineDraft[]
+  onPipelineRemove: (id: string) => void
+  onPipelineClear: () => void
+  highlightedPipelineId: string | null
 }) {
   return (
     <div className="flex flex-col h-full">
+      {/* ─── HISTORY SECTION ────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b-2 border-foreground">
         <div className="flex items-center gap-2">
           <History className="w-4 h-4" />
@@ -479,16 +505,16 @@ function HistorySidebar({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onClear}
+            onClick={onHistoryClear}
             className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
         )}
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         {history.length === 0 ? (
-          <div className="px-4 py-8 text-center">
+          <div className="px-4 py-6 text-center">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">No history yet</p>
           </div>
         ) : (
@@ -500,10 +526,10 @@ function HistorySidebar({
               return (
                 <button
                   key={entry.id}
-                  onClick={() => onSelect(entry)}
+                  onClick={() => onHistorySelect(entry)}
                   className={cn(
                     'w-full text-left px-4 py-3 border-b border-muted hover:bg-muted transition-colors',
-                    selectedId === entry.id && 'bg-muted'
+                    selectedHistoryId === entry.id && 'bg-muted'
                   )}
                 >
                   <div className="flex items-center justify-between mb-1">
@@ -525,6 +551,102 @@ function HistorySidebar({
                     </span>
                   )}
                 </button>
+              )
+            })}
+          </div>
+        )}
+      </ScrollArea>
+
+      {/* ─── DIVIDER ────────────────────────────────────────────────── */}
+      <div className="border-t-4 border-foreground" />
+
+      {/* ─── PIPELINE SECTION ───────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-4 py-3 border-b-2 border-foreground bg-muted">
+        <div className="flex items-center gap-2">
+          <ListFilter className="w-4 h-4" />
+          <span className="text-xs font-bold uppercase tracking-widest">Pipeline</span>
+          {pipelineItems.length > 0 && (
+            <span className="text-[10px] font-bold font-mono bg-primary text-primary-foreground px-1.5 py-0.5">
+              {pipelineItems.length}
+            </span>
+          )}
+        </div>
+        {pipelineItems.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onPipelineClear}
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        )}
+      </div>
+      <ScrollArea className="flex-1 min-h-0">
+        {pipelineItems.length === 0 ? (
+          <div className="px-4 py-6 text-center">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">No queued items</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Forge a signal, select a route, and send to pipeline</p>
+          </div>
+        ) : (
+          <div className="py-1">
+            {pipelineItems.map((item) => {
+              const date = new Date(item.timestamp)
+              const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+              const summaryLine = Array.isArray(item.output?.signal_summary) ? (item.output.signal_summary[0] ?? '') : ''
+              const itemTags = Array.isArray(item.output?.tags) ? item.output.tags : []
+              const confidence = typeof item.output?.confidence_score === 'number' ? item.output.confidence_score : 0
+              const isHighlighted = highlightedPipelineId === item.id
+              return (
+                <div
+                  key={item.id}
+                  className={cn(
+                    'px-4 py-3 border-b border-muted transition-colors',
+                    isHighlighted && 'bg-primary/5 border-l-4 border-l-primary'
+                  )}
+                >
+                  {/* Row 1: Route badge + timestamp + delete */}
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-widest bg-secondary text-secondary-foreground px-1.5 py-0.5">
+                      {item.route}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-muted-foreground font-mono uppercase">
+                        {dateStr} {timeStr}
+                      </span>
+                      <button
+                        onClick={() => onPipelineRemove(item.id)}
+                        className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Row 2: First summary line */}
+                  <p className="text-xs text-foreground leading-snug line-clamp-2 mb-1.5">
+                    {summaryLine.slice(0, 80) || 'No summary'}
+                    {summaryLine.length > 80 ? '...' : ''}
+                  </p>
+                  {/* Row 3: Confidence + Tags + Status */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={cn('text-[9px] font-bold font-mono px-1.5 py-0.5', getConfidenceColor(confidence))}>
+                      {confidence}
+                    </span>
+                    {itemTags.slice(0, 2).map((tag, i) => (
+                      <span
+                        key={i}
+                        className="text-[9px] font-bold uppercase tracking-wide bg-accent text-accent-foreground px-1 py-0.5"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                    <span className="ml-auto flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                      <CircleDot className="w-2.5 h-2.5" />
+                      Queued
+                    </span>
+                  </div>
+                </div>
               )
             })}
           </div>
@@ -675,14 +797,18 @@ export default function Page() {
   const [selectedRoute, setSelectedRoute] = useState<RouteType | null>(null)
   const [pipelineMessage, setPipelineMessage] = useState<string | null>(null)
   const pipelineMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pipelineItems, setPipelineItems] = useState<PipelineDraft[]>([])
+  const [highlightedPipelineId, setHighlightedPipelineId] = useState<string | null>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Pipeline stage tracking
   const [activeStage, setActiveStage] = useState<PipelineStage>('input')
   const [completedStages, setCompletedStages] = useState<Set<PipelineStage>>(new Set())
 
-  // Load history on mount
+  // Load history and pipeline on mount
   useEffect(() => {
     setHistory(loadHistory())
+    setPipelineItems(loadPipelineDrafts())
   }, [])
 
   // Sample data toggle
@@ -712,11 +838,14 @@ export default function Page() {
     }
   }, [input, loading, output])
 
-  // Cleanup pipeline message timer
+  // Cleanup timers
   useEffect(() => {
     return () => {
       if (pipelineMessageTimerRef.current) {
         clearTimeout(pipelineMessageTimerRef.current)
+      }
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current)
       }
     }
   }, [])
@@ -788,7 +917,13 @@ export default function Page() {
     if (!output || !selectedRoute) return
 
     const draft = createPipelineDraft(input, output, selectedRoute)
-    savePipelineDraft(draft)
+
+    // Add to pipeline state and persist
+    setPipelineItems((prev) => {
+      const updated = [draft, ...prev]
+      savePipelineDrafts(updated)
+      return updated
+    })
 
     // Update stage to output completed
     setActiveStage('output')
@@ -803,8 +938,18 @@ export default function Page() {
       return updated
     })
 
-    // Show success message
-    setPipelineMessage('Pipeline draft created: EpisodeDraft, ClipDraft, ProductDraft')
+    // Open sidebar and highlight the new pipeline item
+    setSidebarOpen(true)
+    setHighlightedPipelineId(draft.id)
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current)
+    }
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedPipelineId(null)
+    }, 4000)
+
+    // Show inline confirmation message
+    setPipelineMessage(`Queued to ${selectedRoute.charAt(0).toUpperCase() + selectedRoute.slice(1)}`)
     if (pipelineMessageTimerRef.current) {
       clearTimeout(pipelineMessageTimerRef.current)
     }
@@ -875,6 +1020,22 @@ export default function Page() {
     setHistory([])
     saveHistory([])
     setSelectedHistoryId(null)
+  }, [])
+
+  // Pipeline remove single item
+  const handlePipelineRemove = useCallback((id: string) => {
+    setPipelineItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id)
+      savePipelineDrafts(updated)
+      return updated
+    })
+  }, [])
+
+  // Pipeline clear all
+  const handlePipelineClear = useCallback(() => {
+    setPipelineItems([])
+    savePipelineDrafts([])
+    setHighlightedPipelineId(null)
   }, [])
 
   const charCount = input.length
@@ -948,12 +1109,16 @@ export default function Page() {
         <div className="flex flex-1 overflow-hidden">
           {/* ─── SIDEBAR ──────────────────────────────────────────────── */}
           {sidebarOpen && (
-            <aside className="w-64 flex-shrink-0 border-r-2 border-foreground bg-background overflow-hidden">
-              <HistorySidebar
+            <aside className="w-72 flex-shrink-0 border-r-2 border-foreground bg-background overflow-hidden">
+              <SidebarPanel
                 history={history}
-                onSelect={handleHistorySelect}
-                onClear={handleHistoryClear}
-                selectedId={selectedHistoryId}
+                onHistorySelect={handleHistorySelect}
+                onHistoryClear={handleHistoryClear}
+                selectedHistoryId={selectedHistoryId}
+                pipelineItems={pipelineItems}
+                onPipelineRemove={handlePipelineRemove}
+                onPipelineClear={handlePipelineClear}
+                highlightedPipelineId={highlightedPipelineId}
               />
             </aside>
           )}
