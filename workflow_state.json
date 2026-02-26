@@ -1,9 +1,9 @@
 {
-  "app_name": "Signal Synthesizer",
+  "app_name": "Signal Forge",
   "agents": {
-    "synthesis_agent": {
+    "forge_agent": {
       "agent_id": "699bbbbb071399e40ad3523c",
-      "name": "Synthesis Agent",
+      "name": "Forge Agent",
       "type": "single",
       "model": "gpt-4.1",
       "provider": "openai",

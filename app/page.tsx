@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { callAIAgent } from '@/lib/aiAgent'
 import parseLLMJson from '@/lib/jsonParser'
 import { copyToClipboard } from '@/lib/clipboard'
@@ -23,43 +23,128 @@ import {
   RotateCcw,
   Activity,
   History,
+  Gauge,
+  Radio,
+  BookOpen,
+  FlaskConical,
+  Archive,
+  ArrowRight,
+  Send,
+  ChevronRight,
 } from 'lucide-react'
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
-const SYNTHESIS_AGENT_ID = '699bbbbb071399e40ad3523c'
+const FORGE_AGENT_ID = '699bbbbb071399e40ad3523c'
 const MAX_CHARS = 10000
-const HISTORY_KEY = 'signal-synthesizer-history'
+const HISTORY_KEY = 'signal-forge-history'
+const PIPELINE_DRAFTS_KEY = 'signal-forge-pipeline-drafts'
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
-interface SynthesisResult {
+interface ForgeResult {
   signal_summary: string[]
   narrative_compression: string
   tags: string[]
   diagnostic_note: string
+  confidence_score: number
 }
+
+type RouteType = 'broadcast' | 'publishing' | 'apocrypha' | 'store'
+
+type PipelineStage = 'input' | 'forge' | 'route' | 'output'
 
 interface HistoryEntry {
   id: string
   timestamp: string
   input: string
-  output: SynthesisResult
+  output: ForgeResult
   firstTag: string
   firstBulletPreview: string
+  route?: RouteType | null
 }
+
+interface EpisodeDraft {
+  title: string
+  summary: string
+  tags: string[]
+  confidence: number
+  status: 'draft'
+}
+
+interface ClipDraft {
+  headline: string
+  body: string
+  tags: string[]
+  route: string
+  status: 'draft'
+}
+
+interface ProductDraft {
+  name: string
+  description: string
+  category: string
+  metadata: {
+    confidence: number
+    signal_count: number
+    source_length: number
+  }
+  status: 'draft'
+}
+
+interface PipelineDraft {
+  id: string
+  timestamp: string
+  route: RouteType
+  input: string
+  output: ForgeResult
+  drafts: {
+    episode: EpisodeDraft
+    clip: ClipDraft
+    product: ProductDraft
+  }
+}
+
+// ─── ROUTE DEFINITIONS ──────────────────────────────────────────────────────
+
+const ROUTES: { key: RouteType; label: string; description: string; icon: React.ReactNode }[] = [
+  {
+    key: 'broadcast',
+    label: 'Broadcast',
+    description: 'Optimized for wide distribution -- news, social, alerts',
+    icon: <Radio className="w-4 h-4" />,
+  },
+  {
+    key: 'publishing',
+    label: 'Publishing',
+    description: 'Editorial quality -- articles, reports, documentation',
+    icon: <BookOpen className="w-4 h-4" />,
+  },
+  {
+    key: 'apocrypha',
+    label: 'Apocrypha',
+    description: 'Experimental/speculative -- creative, unverified, exploratory',
+    icon: <FlaskConical className="w-4 h-4" />,
+  },
+  {
+    key: 'store',
+    label: 'Store',
+    description: 'Structured for cataloging -- databases, archives, metadata',
+    icon: <Archive className="w-4 h-4" />,
+  },
+]
 
 // ─── HELPER: Extract Agent Result ────────────────────────────────────────────
 
-function extractAgentResult(result: any): SynthesisResult | null {
+function extractAgentResult(result: any): ForgeResult | null {
   // Path 1: result.response.result is already the parsed object
   if (result?.response?.result && typeof result.response.result === 'object' && !Array.isArray(result.response.result)) {
     const r = result.response.result
-    if (r.signal_summary || r.narrative_compression || r.tags || r.diagnostic_note) {
-      return normalizeSynthesis(r)
+    if (r.signal_summary || r.narrative_compression || r.tags || r.diagnostic_note || r.confidence_score !== undefined) {
+      return normalizeForgeResult(r)
     }
     if (r.result && typeof r.result === 'object') {
-      return normalizeSynthesis(r.result)
+      return normalizeForgeResult(r.result)
     }
   }
 
@@ -67,8 +152,8 @@ function extractAgentResult(result: any): SynthesisResult | null {
   if (typeof result?.response?.result === 'string') {
     const parsed = parseLLMJson(result.response.result)
     if (parsed && typeof parsed === 'object') {
-      if (parsed.signal_summary || parsed.narrative_compression) return normalizeSynthesis(parsed)
-      if (parsed.result) return normalizeSynthesis(parsed.result)
+      if (parsed.signal_summary || parsed.narrative_compression) return normalizeForgeResult(parsed)
+      if (parsed.result) return normalizeForgeResult(parsed.result)
     }
   }
 
@@ -76,27 +161,28 @@ function extractAgentResult(result: any): SynthesisResult | null {
   if (typeof result?.raw_response === 'string') {
     const parsed = parseLLMJson(result.raw_response)
     if (parsed && typeof parsed === 'object') {
-      if (parsed.signal_summary || parsed.narrative_compression) return normalizeSynthesis(parsed)
-      if (parsed.result) return normalizeSynthesis(parsed.result)
+      if (parsed.signal_summary || parsed.narrative_compression) return normalizeForgeResult(parsed)
+      if (parsed.result) return normalizeForgeResult(parsed.result)
     }
   }
 
   // Path 4: result.response itself
   if (result?.response && typeof result.response === 'object') {
     if (result.response.signal_summary || result.response.narrative_compression) {
-      return normalizeSynthesis(result.response)
+      return normalizeForgeResult(result.response)
     }
   }
 
   return null
 }
 
-function normalizeSynthesis(data: any): SynthesisResult {
+function normalizeForgeResult(data: any): ForgeResult {
   return {
     signal_summary: Array.isArray(data?.signal_summary) ? data.signal_summary : [],
     narrative_compression: typeof data?.narrative_compression === 'string' ? data.narrative_compression : '',
     tags: Array.isArray(data?.tags) ? data.tags : [],
     diagnostic_note: typeof data?.diagnostic_note === 'string' ? data.diagnostic_note : '',
+    confidence_score: typeof data?.confidence_score === 'number' ? data.confidence_score : 0,
   }
 }
 
@@ -104,7 +190,7 @@ function normalizeSynthesis(data: any): SynthesisResult {
 
 const SAMPLE_INPUT = `Federal Reserve signals potential rate pause in March. European markets rally on energy supply improvements. Tech sector earnings beat expectations across major players. Emerging market currencies stabilize after Q4 volatility. Supply chain disruptions in semiconductor industry continue to ease, but automotive sector faces new headwinds from rare earth mineral shortages. Consumer confidence index rises for third consecutive month.`
 
-const SAMPLE_OUTPUT: SynthesisResult = {
+const SAMPLE_OUTPUT: ForgeResult = {
   signal_summary: [
     'Central bank policy pivoting toward pause signals end of tightening cycle',
     'Energy supply normalization driving European equity recovery',
@@ -117,6 +203,7 @@ const SAMPLE_OUTPUT: SynthesisResult = {
   tags: ['macro-pivot', 'risk-on', 'supply-chain'],
   diagnostic_note:
     'Input contained 7 distinct signal vectors with moderate cross-correlation, suitable for thematic clustering.',
+  confidence_score: 78,
 }
 
 // ─── HISTORY HELPERS ─────────────────────────────────────────────────────────
@@ -142,7 +229,7 @@ function saveHistory(entries: HistoryEntry[]) {
   }
 }
 
-function createHistoryEntry(input: string, output: SynthesisResult): HistoryEntry {
+function createHistoryEntry(input: string, output: ForgeResult, route?: RouteType | null): HistoryEntry {
   const tags = Array.isArray(output?.tags) ? output.tags : []
   const bullets = Array.isArray(output?.signal_summary) ? output.signal_summary : []
   return {
@@ -152,6 +239,66 @@ function createHistoryEntry(input: string, output: SynthesisResult): HistoryEntr
     output,
     firstTag: tags[0] ?? '',
     firstBulletPreview: (bullets[0] ?? '').slice(0, 60) + ((bullets[0] ?? '').length > 60 ? '...' : ''),
+    route: route ?? null,
+  }
+}
+
+// ─── PIPELINE DRAFT HELPERS ──────────────────────────────────────────────────
+
+function createPipelineDraft(input: string, output: ForgeResult, route: RouteType): PipelineDraft {
+  const tags = Array.isArray(output?.tags) ? output.tags : []
+  const bullets = Array.isArray(output?.signal_summary) ? output.signal_summary : []
+  const narrative = typeof output?.narrative_compression === 'string' ? output.narrative_compression : ''
+  const diagnostic = typeof output?.diagnostic_note === 'string' ? output.diagnostic_note : ''
+  const confidence = typeof output?.confidence_score === 'number' ? output.confidence_score : 0
+
+  const episode: EpisodeDraft = {
+    title: (tags[0] ? tags[0] + ' ' : '') + 'Signal Brief',
+    summary: narrative,
+    tags: tags,
+    confidence: confidence,
+    status: 'draft',
+  }
+
+  const clip: ClipDraft = {
+    headline: bullets[0] ?? '',
+    body: narrative.slice(0, 280),
+    tags: tags,
+    route: route,
+    status: 'draft',
+  }
+
+  const product: ProductDraft = {
+    name: tags[0] ?? 'Untitled Signal',
+    description: diagnostic,
+    category: route,
+    metadata: {
+      confidence: confidence,
+      signal_count: bullets.length,
+      source_length: input.length,
+    },
+    status: 'draft',
+  }
+
+  return {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    timestamp: new Date().toISOString(),
+    route,
+    input,
+    output,
+    drafts: { episode, clip, product },
+  }
+}
+
+function savePipelineDraft(draft: PipelineDraft) {
+  if (typeof window === 'undefined') return
+  try {
+    const stored = localStorage.getItem(PIPELINE_DRAFTS_KEY)
+    const existing: PipelineDraft[] = stored ? JSON.parse(stored) : []
+    const updated = [draft, ...(Array.isArray(existing) ? existing : [])].slice(0, 100)
+    localStorage.setItem(PIPELINE_DRAFTS_KEY, JSON.stringify(updated))
+  } catch {
+    // localStorage full or unavailable
   }
 }
 
@@ -251,6 +398,63 @@ function renderMarkdown(text: string) {
   )
 }
 
+// ─── STAGE INDICATOR COMPONENT ──────────────────────────────────────────────
+
+const STAGES: { key: PipelineStage; label: string }[] = [
+  { key: 'input', label: 'INPUT' },
+  { key: 'forge', label: 'FORGE' },
+  { key: 'route', label: 'ROUTE' },
+  { key: 'output', label: 'OUTPUT' },
+]
+
+function getStageStatus(
+  stageKey: PipelineStage,
+  activeStage: PipelineStage,
+  completedStages: Set<PipelineStage>
+): 'active' | 'completed' | 'pending' {
+  if (stageKey === activeStage) return 'active'
+  if (completedStages.has(stageKey)) return 'completed'
+  return 'pending'
+}
+
+function StageIndicators({
+  activeStage,
+  completedStages,
+}: {
+  activeStage: PipelineStage
+  completedStages: Set<PipelineStage>
+}) {
+  return (
+    <div className="flex items-center justify-center gap-0 px-4 py-3 border-b-2 border-foreground bg-background overflow-x-auto">
+      {STAGES.map((stage, idx) => {
+        const status = getStageStatus(stage.key, activeStage, completedStages)
+        return (
+          <React.Fragment key={stage.key}>
+            <div
+              className={cn(
+                'flex items-center justify-center px-4 py-1.5 min-w-[80px] border-2 text-xs font-bold uppercase tracking-widest transition-colors',
+                status === 'active' && 'bg-primary text-primary-foreground border-foreground',
+                status === 'completed' && 'bg-secondary text-secondary-foreground border-foreground',
+                status === 'pending' && 'bg-muted text-muted-foreground border-muted-foreground'
+              )}
+            >
+              {stage.label}
+            </div>
+            {idx < STAGES.length - 1 && (
+              <div
+                className={cn(
+                  'w-8 h-0.5 flex-shrink-0',
+                  completedStages.has(stage.key) ? 'bg-foreground' : 'bg-muted-foreground'
+                )}
+              />
+            )}
+          </React.Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── HISTORY SIDEBAR COMPONENT ───────────────────────────────────────────────
 
 function HistorySidebar({
@@ -315,6 +519,11 @@ function HistorySidebar({
                   <p className="text-xs text-foreground leading-snug line-clamp-2">
                     {entry.firstBulletPreview || 'No preview'}
                   </p>
+                  {entry.route && (
+                    <span className="inline-block mt-1 text-[9px] font-bold uppercase tracking-widest bg-secondary text-secondary-foreground px-1.5 py-0.5">
+                      {entry.route}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -358,12 +567,103 @@ function OutputSection({
   )
 }
 
+// ─── CONFIDENCE BAR COMPONENT ────────────────────────────────────────────────
+
+function ConfidenceBar({ score, loading }: { score: number; loading: boolean }) {
+  const safeScore = typeof score === 'number' ? Math.max(0, Math.min(100, score)) : 0
+
+  const getBarColor = (s: number): string => {
+    if (s <= 30) return 'bg-destructive'
+    if (s <= 60) return 'bg-accent'
+    return 'bg-secondary'
+  }
+
+  const getLabel = (s: number): string => {
+    if (s <= 30) return 'LOW'
+    if (s <= 60) return 'MEDIUM'
+    return 'HIGH'
+  }
+
+  return (
+    <OutputSection
+      label="Confidence Score"
+      icon={<Gauge className="w-3.5 h-3.5" />}
+      loading={loading}
+    >
+      {safeScore > 0 || !loading ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              {getLabel(safeScore)}
+            </span>
+            <span className="text-sm font-bold font-mono">
+              {safeScore} / 100
+            </span>
+          </div>
+          <div className="w-full h-3 bg-muted border-2 border-foreground overflow-hidden">
+            <div
+              className={cn('h-full transition-all duration-500', getBarColor(safeScore))}
+              style={{ width: `${safeScore}%` }}
+            />
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground italic">Awaiting synthesis...</p>
+      )}
+    </OutputSection>
+  )
+}
+
+// ─── ROUTE SELECTOR COMPONENT ────────────────────────────────────────────────
+
+function RouteSelector({
+  selectedRoute,
+  onSelect,
+}: {
+  selectedRoute: RouteType | null
+  onSelect: (route: RouteType) => void
+}) {
+  return (
+    <div className="border-2 border-foreground bg-card">
+      <div className="flex items-center gap-2 px-4 py-2 border-b-2 border-foreground bg-muted">
+        <ArrowRight className="w-3.5 h-3.5" />
+        <span className="text-xs font-bold uppercase tracking-widest">Route Selector</span>
+      </div>
+      <div className="p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {ROUTES.map((route) => {
+            const isSelected = selectedRoute === route.key
+            return (
+              <button
+                key={route.key}
+                onClick={() => onSelect(route.key)}
+                className={cn(
+                  'text-left p-3 border-2 transition-colors',
+                  isSelected
+                    ? 'border-primary bg-primary/5'
+                    : 'border-foreground bg-card hover:bg-muted'
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  {route.icon}
+                  <span className="text-xs font-bold uppercase tracking-widest">{route.label}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-snug">{route.description}</p>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── MAIN PAGE ───────────────────────────────────────────────────────────────
 
 export default function Page() {
   // State
   const [input, setInput] = useState('')
-  const [output, setOutput] = useState<SynthesisResult | null>(null)
+  const [output, setOutput] = useState<ForgeResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -372,6 +672,13 @@ export default function Page() {
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
   const [sampleMode, setSampleMode] = useState(false)
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
+  const [selectedRoute, setSelectedRoute] = useState<RouteType | null>(null)
+  const [pipelineMessage, setPipelineMessage] = useState<string | null>(null)
+  const pipelineMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Pipeline stage tracking
+  const [activeStage, setActiveStage] = useState<PipelineStage>('input')
+  const [completedStages, setCompletedStages] = useState<Set<PipelineStage>>(new Set())
 
   // Load history on mount
   useEffect(() => {
@@ -384,49 +691,127 @@ export default function Page() {
       setInput(SAMPLE_INPUT)
       setOutput(SAMPLE_OUTPUT)
       setError(null)
+      setActiveStage('output')
+      setCompletedStages(new Set<PipelineStage>(['input', 'forge']))
+      setSelectedRoute(null)
     } else {
       setInput('')
       setOutput(null)
       setError(null)
       setSelectedHistoryId(null)
+      setSelectedRoute(null)
+      setActiveStage('input')
+      setCompletedStages(new Set<PipelineStage>())
     }
   }, [sampleMode])
 
-  // Synthesize handler
-  const handleSynthesize = useCallback(async () => {
+  // Update active stage based on input content
+  useEffect(() => {
+    if (!loading && !output && input.trim().length > 0) {
+      setActiveStage('input')
+    }
+  }, [input, loading, output])
+
+  // Cleanup pipeline message timer
+  useEffect(() => {
+    return () => {
+      if (pipelineMessageTimerRef.current) {
+        clearTimeout(pipelineMessageTimerRef.current)
+      }
+    }
+  }, [])
+
+  // Forge handler
+  const handleForge = useCallback(async () => {
     if (!input.trim() || loading) return
 
     setLoading(true)
     setError(null)
     setOutput(null)
-    setActiveAgentId(SYNTHESIS_AGENT_ID)
+    setActiveAgentId(FORGE_AGENT_ID)
+    setActiveStage('forge')
+    setCompletedStages(new Set<PipelineStage>(['input']))
+    setPipelineMessage(null)
 
     try {
-      const result = await callAIAgent(input, SYNTHESIS_AGENT_ID)
+      const messageWithRoute = selectedRoute
+        ? `[ROUTE: ${selectedRoute.toUpperCase()}]\n\n${input}`
+        : input
+      const result = await callAIAgent(messageWithRoute, FORGE_AGENT_ID)
 
       if (result.success) {
         const parsed = extractAgentResult(result)
         if (parsed) {
           setOutput(parsed)
+          setActiveStage('output')
+          setCompletedStages(new Set<PipelineStage>(['input', 'forge']))
           // Save to history
-          const entry = createHistoryEntry(input, parsed)
+          const entry = createHistoryEntry(input, parsed, selectedRoute)
           const updated = [entry, ...history]
           setHistory(updated)
           saveHistory(updated)
           setSelectedHistoryId(entry.id)
         } else {
-          setError('Could not parse the synthesis result. Please try again.')
+          setError('Could not parse the forge result. Please try again.')
+          setActiveStage('input')
+          setCompletedStages(new Set<PipelineStage>())
         }
       } else {
-        setError(result?.error ?? result?.response?.message ?? 'Synthesis failed. Please try again.')
+        setError(result?.error ?? result?.response?.message ?? 'Forge failed. Please try again.')
+        setActiveStage('input')
+        setCompletedStages(new Set<PipelineStage>())
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred.')
+      setActiveStage('input')
+      setCompletedStages(new Set<PipelineStage>())
     } finally {
       setLoading(false)
       setActiveAgentId(null)
     }
-  }, [input, loading, history])
+  }, [input, loading, history, selectedRoute])
+
+  // Route selection handler
+  const handleRouteSelect = useCallback((route: RouteType) => {
+    setSelectedRoute(route)
+    setActiveStage('route')
+    setCompletedStages((prev) => {
+      const next = new Set(prev)
+      next.add('input')
+      next.add('forge')
+      return next
+    })
+  }, [])
+
+  // Send to pipeline handler
+  const handleSendToPipeline = useCallback(() => {
+    if (!output || !selectedRoute) return
+
+    const draft = createPipelineDraft(input, output, selectedRoute)
+    savePipelineDraft(draft)
+
+    // Update stage to output completed
+    setActiveStage('output')
+    setCompletedStages(new Set<PipelineStage>(['input', 'forge', 'route']))
+
+    // Update history entry with route
+    setHistory((prev) => {
+      const updated = prev.map((entry) =>
+        entry.id === selectedHistoryId ? { ...entry, route: selectedRoute } : entry
+      )
+      saveHistory(updated)
+      return updated
+    })
+
+    // Show success message
+    setPipelineMessage('Pipeline draft created: EpisodeDraft, ClipDraft, ProductDraft')
+    if (pipelineMessageTimerRef.current) {
+      clearTimeout(pipelineMessageTimerRef.current)
+    }
+    pipelineMessageTimerRef.current = setTimeout(() => {
+      setPipelineMessage(null)
+    }, 3000)
+  }, [output, selectedRoute, input, selectedHistoryId])
 
   // Clear handler
   const handleClear = useCallback(() => {
@@ -435,6 +820,10 @@ export default function Page() {
     setError(null)
     setSelectedHistoryId(null)
     setSampleMode(false)
+    setSelectedRoute(null)
+    setPipelineMessage(null)
+    setActiveStage('input')
+    setCompletedStages(new Set<PipelineStage>())
   }, [])
 
   // Copy output
@@ -451,6 +840,9 @@ export default function Page() {
       '',
       'TAGS',
       tags.join(', '),
+      '',
+      'CONFIDENCE SCORE',
+      `${output.confidence_score ?? 0} / 100`,
       '',
       'DIAGNOSTIC NOTE',
       output.diagnostic_note ?? '',
@@ -470,6 +862,12 @@ export default function Page() {
     setError(null)
     setSelectedHistoryId(entry.id)
     setSampleMode(false)
+    setSelectedRoute(entry.route ?? null)
+    setActiveStage('output')
+    setCompletedStages(new Set<PipelineStage>(['input', 'forge']))
+    if (entry.route) {
+      setCompletedStages(new Set<PipelineStage>(['input', 'forge', 'route']))
+    }
   }, [])
 
   // History clear
@@ -481,12 +879,15 @@ export default function Page() {
 
   const charCount = input.length
   const isOverLimit = charCount > MAX_CHARS
-  const canSynthesize = input.trim().length > 0 && !loading && !isOverLimit
+  const canForge = input.trim().length > 0 && !loading && !isOverLimit
 
   const signalSummary = Array.isArray(output?.signal_summary) ? output.signal_summary : []
   const narrativeCompression = typeof output?.narrative_compression === 'string' ? output.narrative_compression : ''
   const tags = Array.isArray(output?.tags) ? output.tags : []
   const diagnosticNote = typeof output?.diagnostic_note === 'string' ? output.diagnostic_note : ''
+  const confidenceScore = typeof output?.confidence_score === 'number' ? output.confidence_score : 0
+
+  const canSendToPipeline = output !== null && selectedRoute !== null
 
   return (
     <ErrorBoundary>
@@ -509,7 +910,10 @@ export default function Page() {
               </Button>
               <div className="flex items-center gap-2">
                 <Zap className="w-5 h-5 text-primary" />
-                <h1 className="text-lg font-bold uppercase tracking-widest">Signal Synthesizer</h1>
+                <div>
+                  <h1 className="text-lg font-bold uppercase tracking-widest leading-none">Signal Forge</h1>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground leading-none mt-0.5">Neon Pipeline</p>
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -536,6 +940,9 @@ export default function Page() {
             </div>
           </div>
         </header>
+
+        {/* ─── STAGE INDICATORS ──────────────────────────────────────── */}
+        <StageIndicators activeStage={activeStage} completedStages={completedStages} />
 
         {/* ─── BODY ──────────────────────────────────────────────────── */}
         <div className="flex flex-1 overflow-hidden">
@@ -592,19 +999,19 @@ export default function Page() {
                           </Button>
                           <Button
                             size="sm"
-                            onClick={handleSynthesize}
-                            disabled={!canSynthesize}
+                            onClick={handleForge}
+                            disabled={!canForge}
                             className="h-8 text-xs font-bold uppercase tracking-wide bg-primary text-primary-foreground border-2 border-foreground hover:bg-primary/90"
                           >
                             {loading ? (
                               <>
                                 <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                                Processing
+                                Forging
                               </>
                             ) : (
                               <>
                                 <Zap className="w-3.5 h-3.5 mr-1.5" />
-                                Synthesize
+                                Forge
                               </>
                             )}
                           </Button>
@@ -618,7 +1025,7 @@ export default function Page() {
                           <div className="flex-1">
                             <p className="text-xs text-foreground">{error}</p>
                             <button
-                              onClick={handleSynthesize}
+                              onClick={handleForge}
                               className="text-xs font-bold uppercase tracking-wide text-primary mt-1 flex items-center gap-1 hover:underline"
                             >
                               <RotateCcw className="w-3 h-3" />
@@ -638,8 +1045,8 @@ export default function Page() {
                     <div className="px-4 py-2 flex items-center gap-3">
                       <div className={cn('w-2 h-2 flex-shrink-0', activeAgentId ? 'bg-primary animate-pulse' : 'bg-muted-foreground')} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold uppercase tracking-wide">Synthesis Agent</p>
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">{SYNTHESIS_AGENT_ID}</p>
+                        <p className="text-xs font-bold uppercase tracking-wide">Forge Agent</p>
+                        <p className="text-[10px] text-muted-foreground font-mono truncate">{FORGE_AGENT_ID}</p>
                       </div>
                       <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                         {activeAgentId ? 'Active' : 'Idle'}
@@ -731,7 +1138,10 @@ export default function Page() {
                         )}
                       </OutputSection>
 
-                      {/* Section 4: Diagnostic Note */}
+                      {/* Section 4: Confidence Score */}
+                      <ConfidenceBar score={confidenceScore} loading={loading} />
+
+                      {/* Section 5: Diagnostic Note */}
                       <OutputSection
                         label="Diagnostic Note"
                         icon={<AlertCircle className="w-3.5 h-3.5" />}
@@ -743,6 +1153,47 @@ export default function Page() {
                           <p className="text-sm text-muted-foreground italic">Awaiting synthesis...</p>
                         )}
                       </OutputSection>
+
+                      {/* ─── ROUTE SELECTOR (after output exists) ──────────── */}
+                      {output && !loading && (
+                        <>
+                          <div className="border-t-2 border-foreground my-4" />
+                          <RouteSelector selectedRoute={selectedRoute} onSelect={handleRouteSelect} />
+
+                          {/* ─── SEND TO PIPELINE BUTTON ─────────────────────── */}
+                          <div className="space-y-3">
+                            <Button
+                              size="sm"
+                              onClick={handleSendToPipeline}
+                              disabled={!canSendToPipeline}
+                              className={cn(
+                                'w-full h-10 text-xs font-bold uppercase tracking-widest border-2 border-foreground',
+                                canSendToPipeline
+                                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                                  : 'bg-muted text-muted-foreground'
+                              )}
+                            >
+                              <Send className="w-3.5 h-3.5 mr-2" />
+                              Send to Pipeline
+                              {selectedRoute && (
+                                <span className="ml-2 opacity-70">
+                                  <ChevronRight className="w-3 h-3 inline" /> {selectedRoute.toUpperCase()}
+                                </span>
+                              )}
+                            </Button>
+
+                            {/* Pipeline status message */}
+                            {pipelineMessage && (
+                              <div className="p-3 border-2 border-secondary bg-secondary/10">
+                                <div className="flex items-center gap-2">
+                                  <Check className="w-4 h-4 text-secondary flex-shrink-0" />
+                                  <p className="text-xs font-bold uppercase tracking-wide text-secondary">{pipelineMessage}</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

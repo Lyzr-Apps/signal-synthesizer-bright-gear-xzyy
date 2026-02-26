@@ -1,5 +1,5 @@
 {
-  "agent_name": "Synthesis Agent",
+  "agent_name": "Forge Agent",
   "agent_id": "699bbbbb071399e40ad3523c",
   "agent_type": "json",
   "accessor": "json",
@@ -8,6 +8,7 @@
     "signal_summary": ["string array - exactly 5 bullet points"],
     "narrative_compression": "string - single paragraph",
     "tags": ["string array - up to 3 tags"],
-    "diagnostic_note": "string - 1 sentence. Prepended with 'Signal Status: Unverified or Hypothetical.' when input is fictional, speculative, or unsupported"
+    "diagnostic_note": "string - 1 sentence. Prepended with 'Signal Status: Unverified or Hypothetical.' when input is fictional, speculative, or unsupported",
+    "confidence_score": "integer - 0 to 100 representing confidence in output accuracy"
   }
 }
