@@ -33,6 +33,7 @@ import {
   ChevronRight,
   ListFilter,
   CircleDot,
+  Link2,
 } from 'lucide-react'
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ interface HistoryEntry {
   firstTag: string
   firstBulletPreview: string
   route?: RouteType | null
+  sourceUrl?: string
 }
 
 interface EpisodeDraft {
@@ -231,7 +233,7 @@ function saveHistory(entries: HistoryEntry[]) {
   }
 }
 
-function createHistoryEntry(input: string, output: ForgeResult, route?: RouteType | null): HistoryEntry {
+function createHistoryEntry(input: string, output: ForgeResult, route?: RouteType | null, sourceUrl?: string): HistoryEntry {
   const tags = Array.isArray(output?.tags) ? output.tags : []
   const bullets = Array.isArray(output?.signal_summary) ? output.signal_summary : []
   return {
@@ -242,6 +244,7 @@ function createHistoryEntry(input: string, output: ForgeResult, route?: RouteTyp
     firstTag: tags[0] ?? '',
     firstBulletPreview: (bullets[0] ?? '').slice(0, 60) + ((bullets[0] ?? '').length > 60 ? '...' : ''),
     route: route ?? null,
+    sourceUrl: sourceUrl || '',
   }
 }
 
@@ -794,6 +797,7 @@ export default function Page() {
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
   const [sampleMode, setSampleMode] = useState(false)
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
+  const [sourceUrl, setSourceUrl] = useState('')
   const [selectedRoute, setSelectedRoute] = useState<RouteType | null>(null)
   const [pipelineMessage, setPipelineMessage] = useState<string | null>(null)
   const pipelineMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -817,6 +821,7 @@ export default function Page() {
       setInput(SAMPLE_INPUT)
       setOutput(SAMPLE_OUTPUT)
       setError(null)
+      setSourceUrl('https://example.com/market-signals')
       setActiveStage('output')
       setCompletedStages(new Set<PipelineStage>(['input', 'forge']))
       setSelectedRoute(null)
@@ -824,6 +829,7 @@ export default function Page() {
       setInput('')
       setOutput(null)
       setError(null)
+      setSourceUrl('')
       setSelectedHistoryId(null)
       setSelectedRoute(null)
       setActiveStage('input')
@@ -863,10 +869,14 @@ export default function Page() {
     setPipelineMessage(null)
 
     try {
-      const messageWithRoute = selectedRoute
-        ? `[ROUTE: ${selectedRoute.toUpperCase()}]\n\n${input}`
-        : input
-      const result = await callAIAgent(messageWithRoute, FORGE_AGENT_ID)
+      let agentMessage = input
+      if (sourceUrl.trim()) {
+        agentMessage = `[SOURCE: ${sourceUrl.trim()}]\n\n${agentMessage}`
+      }
+      if (selectedRoute) {
+        agentMessage = `[ROUTE: ${selectedRoute.toUpperCase()}]\n\n${agentMessage}`
+      }
+      const result = await callAIAgent(agentMessage, FORGE_AGENT_ID)
 
       if (result.success) {
         const parsed = extractAgentResult(result)
@@ -875,7 +885,7 @@ export default function Page() {
           setActiveStage('output')
           setCompletedStages(new Set<PipelineStage>(['input', 'forge']))
           // Save to history
-          const entry = createHistoryEntry(input, parsed, selectedRoute)
+          const entry = createHistoryEntry(input, parsed, selectedRoute, sourceUrl)
           const updated = [entry, ...history]
           setHistory(updated)
           saveHistory(updated)
@@ -898,7 +908,7 @@ export default function Page() {
       setLoading(false)
       setActiveAgentId(null)
     }
-  }, [input, loading, history, selectedRoute])
+  }, [input, loading, history, selectedRoute, sourceUrl])
 
   // Route selection handler
   const handleRouteSelect = useCallback((route: RouteType) => {
@@ -961,6 +971,7 @@ export default function Page() {
   // Clear handler
   const handleClear = useCallback(() => {
     setInput('')
+    setSourceUrl('')
     setOutput(null)
     setError(null)
     setSelectedHistoryId(null)
@@ -976,7 +987,7 @@ export default function Page() {
     if (!output) return
     const bullets = Array.isArray(output.signal_summary) ? output.signal_summary : []
     const tags = Array.isArray(output.tags) ? output.tags : []
-    const text = [
+    const lines = [
       'SIGNAL SUMMARY',
       ...bullets.map((b, i) => `${i + 1}. ${b}`),
       '',
@@ -991,18 +1002,23 @@ export default function Page() {
       '',
       'DIAGNOSTIC NOTE',
       output.diagnostic_note ?? '',
-    ].join('\n')
+    ]
+    if (sourceUrl.trim()) {
+      lines.push('', 'SOURCE', sourceUrl.trim())
+    }
+    const text = lines.join('\n')
 
     const success = await copyToClipboard(text)
     if (success) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
-  }, [output])
+  }, [output, sourceUrl])
 
   // History select
   const handleHistorySelect = useCallback((entry: HistoryEntry) => {
     setInput(entry.input)
+    setSourceUrl(entry.sourceUrl ?? '')
     setOutput(entry.output)
     setError(null)
     setSelectedHistoryId(entry.id)
@@ -1135,6 +1151,21 @@ export default function Page() {
                       <span className="text-xs font-bold uppercase tracking-widest">Input</span>
                     </div>
                     <div className="p-4">
+                      {/* ─── SOURCE URL (optional) ──────────────────────── */}
+                      <div className="mb-3">
+                        <label className="flex items-center gap-1.5 mb-1.5">
+                          <Link2 className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Source</span>
+                          <span className="text-[10px] text-muted-foreground ml-1">(optional)</span>
+                        </label>
+                        <input
+                          type="url"
+                          value={sourceUrl}
+                          onChange={(e) => setSourceUrl(e.target.value)}
+                          placeholder="https://source-url.com/article"
+                          className="w-full h-8 px-3 text-xs font-mono border-2 border-foreground bg-background focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+                        />
+                      </div>
                       <Textarea
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
@@ -1318,6 +1349,22 @@ export default function Page() {
                           <p className="text-sm text-muted-foreground italic">Awaiting synthesis...</p>
                         )}
                       </OutputSection>
+
+                      {/* Section 6: Source Metadata (conditional) */}
+                      {output && !loading && sourceUrl.trim() && (
+                        <div className="border-2 border-foreground bg-card">
+                          <div className="flex items-center gap-2 px-4 py-2 border-b-2 border-foreground bg-muted">
+                            <Link2 className="w-3.5 h-3.5" />
+                            <span className="text-xs font-bold uppercase tracking-widest">Source</span>
+                          </div>
+                          <div className="px-4 py-3 flex items-center gap-2">
+                            <span className="text-[10px] font-bold uppercase tracking-widest bg-secondary text-secondary-foreground px-1.5 py-0.5">
+                              Provided
+                            </span>
+                            <span className="text-xs font-mono text-muted-foreground truncate">{sourceUrl.trim()}</span>
+                          </div>
+                        </div>
+                      )}
 
                       {/* ─── ROUTE SELECTOR (after output exists) ──────────── */}
                       {output && !loading && (
